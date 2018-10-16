@@ -103,8 +103,8 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 }
 
 // Stats provides stats about the Badger database
-func (c *Conn) Stats() map[string]interface{} {
+func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
 		"KeyCount": c.KeyCount,
-	}
+	}, nil
 }

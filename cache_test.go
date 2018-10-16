@@ -99,6 +99,7 @@ func TestStats(t *testing.T) {
 	err = conn.Write(key, v)
 	assert.Nil(t, err)
 
-	s := conn.Stats()
+	s, err := conn.Stats()
+	assert.Nil(t, err)
 	assert.Equal(t, map[string]interface{}{"KeyCount": uint64(1)}, s)
 }
