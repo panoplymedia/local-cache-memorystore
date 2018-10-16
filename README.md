@@ -1,18 +1,18 @@
 # Local Cache MemoryStore
 
-A local cache based on a custom memory store implementation
+A [local cache](https://github.com/panoplymedia/local-cache) based on a custom memory store implementation
 
 ### Sample Usage
 
 ```go
 defaultTimeout := time.Minute
-memoryStoreCache, err := NewCache(defaultTimeout)
+cache, err := NewCache(defaultTimeout)
 if err != nil {
   fmt.Println(err)
 }
 
 // open a connection to badger database
-conn, err := memoryStoreCache.Open("") // pass in empty string since the URI is arbitrary
+conn, err := cache.Open("") // pass in empty string since the URI is arbitrary
 defer conn.Close()
 
 // write data to cache (uses defaultTimeout)
