@@ -6,13 +6,14 @@ import (
 	"time"
 )
 
+// Cache contains memory store options
 // a TTL of 0 does not expire keys
-type MemoryStoreCache struct {
+type Cache struct {
 	TTL time.Duration
 }
 
-// MemoryStoreConn is a connection to a memory store db
-type MemoryStoreConn struct {
+// Conn is a connection to a memory store db
+type Conn struct {
 	TTL      time.Duration
 	Dat      [26]map[string]cacheElement
 	mu       [26]sync.RWMutex
@@ -24,17 +25,17 @@ type cacheElement struct {
 	dat       []byte
 }
 
-// MemoryStoreStats displays stats about the memory store
-type MemoryStoreStats map[string]interface{}
+// Stats displays stats about the memory store
+type Stats map[string]interface{}
 
-// NewCache creates a new MemoryStoreCache
-func NewCache(defaultTimeout time.Duration) (*MemoryStoreCache, error) {
-	return &MemoryStoreCache{TTL: defaultTimeout}, nil
+// NewCache creates a new Cache
+func NewCache(defaultTimeout time.Duration) (*Cache, error) {
+	return &Cache{TTL: defaultTimeout}, nil
 }
 
 // Open opens a new connection to the memory store
-func (c MemoryStoreCache) Open(name string) (*MemoryStoreConn, error) {
-	var m MemoryStoreConn
+func (c Cache) Open(name string) (*Conn, error) {
+	var m Conn
 	for i := 0; i < 26; i++ {
 		d := map[string]cacheElement{}
 		m.Dat[i] = d
@@ -44,18 +45,19 @@ func (c MemoryStoreCache) Open(name string) (*MemoryStoreConn, error) {
 	return &m, nil
 }
 
-func (c *MemoryStoreConn) Close() error {
+// Close noop (there is no connection to close)
+func (c *Conn) Close() error {
 	return nil
 }
 
 // Write writes data to the cache with the default cache TTL
-func (c *MemoryStoreConn) Write(k, v []byte) error {
+func (c *Conn) Write(k, v []byte) error {
 	return c.WriteTTL(k, v, c.TTL)
 }
 
 // WriteTTL writes data to the cache with an explicit TTL
 // a TTL of 0 does not expire keys
-func (c *MemoryStoreConn) WriteTTL(k, v []byte, ttl time.Duration) error {
+func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 	key := string(k)
 	idx := keyToShard(key)
 	var e time.Time
@@ -81,7 +83,7 @@ func (c *MemoryStoreConn) WriteTTL(k, v []byte, ttl time.Duration) error {
 }
 
 // Read retrieves data for a key from the cache
-func (c *MemoryStoreConn) Read(k []byte) ([]byte, error) {
+func (c *Conn) Read(k []byte) ([]byte, error) {
 	key := string(k)
 	idx := keyToShard(key)
 
@@ -101,8 +103,8 @@ func (c *MemoryStoreConn) Read(k []byte) ([]byte, error) {
 }
 
 // Stats provides stats about the Badger database
-func (c *MemoryStoreConn) Stats() map[string]interface{} {
-	return MemoryStoreStats{
+func (c *Conn) Stats() map[string]interface{} {
+	return Stats{
 		"KeyCount": c.KeyCount,
 	}
 }
