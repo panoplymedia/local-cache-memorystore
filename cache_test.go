@@ -14,7 +14,7 @@ func TestNewCache(t *testing.T) {
 	assert.Equal(t, time.Second, c.TTL)
 }
 
-func TestSet(t *testing.T) {
+func TestWrite(t *testing.T) {
 	c, err := NewCache(time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
@@ -39,7 +39,7 @@ func TestSet(t *testing.T) {
 	assert.Errorf(t, err, "Key not found")
 }
 
-func TestSetWithTTL(t *testing.T) {
+func TestWriteTTL(t *testing.T) {
 	c, err := NewCache(time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
@@ -64,7 +64,7 @@ func TestSetWithTTL(t *testing.T) {
 	assert.Errorf(t, err, "Key not found")
 }
 
-func TestGet(t *testing.T) {
+func TestRead(t *testing.T) {
 	c, err := NewCache(time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
