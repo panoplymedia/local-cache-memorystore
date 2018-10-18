@@ -142,7 +142,7 @@ func readData(c *Conn, numKeys int) {
 		go func(c *Conn, keys int) {
 			defer wg.Done()
 			for i := 0; i < keys; i++ {
-				c.Read(uuid.NewV4().Bytes())
+				c.Read([]byte(uuid.NewV4().String()))
 			}
 		}(c, numKeys/numWorkers)
 	}
@@ -169,7 +169,7 @@ func BenchmarkWrite(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		conn.Write(uuid.NewV4().Bytes(), uuid.NewV4().Bytes())
+		conn.Write([]byte(uuid.NewV4().String()), uuid.NewV4().Bytes())
 	}
 }
 

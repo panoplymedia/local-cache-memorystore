@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const numBuckets = 36
+
 // Cache contains memory store options
 // a TTL of 0 does not expire keys
 type Cache struct {
@@ -15,8 +17,8 @@ type Cache struct {
 // Conn is a connection to a memory store db
 type Conn struct {
 	TTL      time.Duration
-	Dat      [26]map[string]cacheElement
-	mu       [26]sync.RWMutex
+	Dat      [numBuckets]map[string]cacheElement
+	mu       [numBuckets]sync.RWMutex
 	KeyCount uint64
 }
 
@@ -36,7 +38,7 @@ func NewCache(defaultTimeout time.Duration) (*Cache, error) {
 // Open opens a new connection to the memory store
 func (c Cache) Open(name string) (*Conn, error) {
 	var m Conn
-	for i := 0; i < 26; i++ {
+	for i := 0; i < numBuckets; i++ {
 		d := map[string]cacheElement{}
 		m.Dat[i] = d
 	}
