@@ -1,9 +1,12 @@
 package memorystorecache
 
 import (
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -102,4 +105,81 @@ func TestStats(t *testing.T) {
 	s, err := conn.Stats()
 	assert.Nil(t, err)
 	assert.Equal(t, map[string]interface{}{"KeyCount": uint64(1)}, s)
+}
+
+func writeData(c *Conn, numKeys int) {
+	wg := sync.WaitGroup{}
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(c *Conn, keys int) {
+			defer wg.Done()
+			for i := 0; i < keys; i++ {
+				c.Write(uuid.NewV4().Bytes(), uuid.NewV4().Bytes())
+			}
+		}(c, numKeys/numWorkers)
+	}
+
+	wg.Wait()
+}
+
+func BenchmarkWriteWorkers(b *testing.B) {
+	c, _ := NewCache(time.Second)
+	conn, _ := c.Open("")
+	defer conn.Close()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		writeData(conn, 1000000)
+	}
+}
+
+func readData(c *Conn, numKeys int) {
+	wg := sync.WaitGroup{}
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(c *Conn, keys int) {
+			defer wg.Done()
+			for i := 0; i < keys; i++ {
+				c.Read(uuid.NewV4().Bytes())
+			}
+		}(c, numKeys/numWorkers)
+	}
+
+	wg.Wait()
+}
+
+func BenchmarkGetWorkers(b *testing.B) {
+	c, _ := NewCache(time.Second)
+	conn, _ := c.Open("")
+	defer conn.Close()
+
+	writeData(conn, 1000000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		readData(conn, 1000000)
+	}
+}
+
+func BenchmarkWrite(b *testing.B) {
+	c, _ := NewCache(time.Second)
+	conn, _ := c.Open("")
+	defer conn.Close()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conn.Write(uuid.NewV4().Bytes(), uuid.NewV4().Bytes())
+	}
+}
+
+func BenchmarkRead(b *testing.B) {
+	c, _ := NewCache(time.Second)
+	conn, _ := c.Open("")
+	defer conn.Close()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conn.Read(uuid.NewV4().Bytes())
+	}
 }
