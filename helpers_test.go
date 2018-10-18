@@ -11,11 +11,13 @@ func TestKeyToShard(t *testing.T) {
 		key   string
 		shard int
 	}{
-		{"aasdf", 0},
-		{"basdf", 1},
-		{"zasfd", 25},
-		{"1asdf", 25},
-		{"0basfd", 25},
+		{"aasdf", 10},
+		{"basdf", 11},
+		{"zasfd", 35},
+		{"1asdf", 1},
+		{"0basfd", 0},
+		{"9basfd", 9},
+		{"'basfd", 35},
 	}
 
 	for _, item := range data {
