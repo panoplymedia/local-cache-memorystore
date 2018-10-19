@@ -20,6 +20,7 @@ type Conn struct {
 	Dat      [numBuckets]map[string]cacheElement
 	mu       [numBuckets]sync.RWMutex
 	KeyCount uint64
+	ticker   *time.Ticker
 }
 
 type cacheElement struct {
@@ -43,12 +44,21 @@ func (c Cache) Open(name string) (*Conn, error) {
 		m.Dat[i] = d
 	}
 
+	// start the sweep ticker
+	m.ticker = time.NewTicker(time.Second * 3)
+	go func(cn *Conn) {
+		for range m.ticker.C {
+			cn.sweep()
+		}
+	}(&m)
+
 	m.TTL = c.TTL
 	return &m, nil
 }
 
 // Close noop (there is no connection to close)
 func (c *Conn) Close() error {
+	c.ticker.Stop()
 	return nil
 }
 
@@ -109,4 +119,21 @@ func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
 		"KeyCount": c.KeyCount,
 	}, nil
+}
+
+func (c *Conn) sweep() {
+	for i := 0; i < numBuckets; i++ {
+		go c.sweepBucket(i)
+	}
+}
+
+func (c *Conn) sweepBucket(idx int) {
+	c.mu[idx].Lock()
+	t := time.Now().UTC()
+	for key, value := range c.Dat[idx] {
+		if t.After(value.expiresAt) {
+			delete(c.Dat[idx], key)
+		}
+	}
+	c.mu[idx].Unlock()
 }
