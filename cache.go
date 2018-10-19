@@ -2,8 +2,12 @@ package memorystorecache
 
 import (
 	"errors"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/panoplymedia/local-cache-memorystore/priorityqueue"
 )
 
 const numBuckets = 36
@@ -11,19 +15,26 @@ const numBuckets = 36
 // Cache contains memory store options
 // a TTL of 0 does not expire keys
 type Cache struct {
-	TTL time.Duration
+	TTL        time.Duration
+	gcInterval time.Duration
 }
 
 // Conn is a connection to a memory store db
 type Conn struct {
 	TTL      time.Duration
-	Dat      [numBuckets]map[string]cacheElement
+	dat      [numBuckets]map[string]cacheElement
 	mu       [numBuckets]sync.RWMutex
-	KeyCount uint64
+	KeyCount int64
+	// garbage collection bookkeeping
+	gcQueue   priorityqueue.PriorityQueue
+	gcQueueMu sync.RWMutex
+	gcItems   map[string]*priorityqueue.Item
+	gcItemsMu sync.RWMutex
+	runGC     bool
 }
 
 type cacheElement struct {
-	expiresAt time.Time
+	expiresAt int64
 	dat       []byte
 }
 
@@ -31,24 +42,28 @@ type cacheElement struct {
 type Stats map[string]interface{}
 
 // NewCache creates a new Cache
-func NewCache(defaultTimeout time.Duration) (*Cache, error) {
-	return &Cache{TTL: defaultTimeout}, nil
+func NewCache(defaultTimeout time.Duration, gcInterval time.Duration) (*Cache, error) {
+	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
 
 // Open opens a new connection to the memory store
 func (c Cache) Open(name string) (*Conn, error) {
 	var m Conn
+	m.gcItems = make(map[string]*priorityqueue.Item)
 	for i := 0; i < numBuckets; i++ {
 		d := map[string]cacheElement{}
-		m.Dat[i] = d
+		m.dat[i] = d
 	}
 
 	m.TTL = c.TTL
+	m.runGC = true
+	go gcLoop(&m, c.gcInterval)
 	return &m, nil
 }
 
-// Close noop (there is no connection to close)
+// Close and stop gc loop
 func (c *Conn) Close() error {
+	c.runGC = false
 	return nil
 }
 
@@ -62,13 +77,13 @@ func (c *Conn) Write(k, v []byte) error {
 func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 	key := string(k)
 	idx := keyToShard(key)
-	var e time.Time
+	var e int64
 
 	if ttl == 0 {
-		// for a 0 TTL, store the max value of a time struct, so it essentially never expires
-		e = time.Unix(1<<63-1, 0)
+		// for a 0 TTL, store the max value of a time
+		e = math.MaxInt64
 	} else {
-		e = time.Now().UTC().Add(ttl)
+		e = time.Now().UTC().Add(ttl).UnixNano()
 	}
 
 	ce := cacheElement{
@@ -77,9 +92,17 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 	}
 
 	c.mu[idx].Lock()
-	c.Dat[idx][key] = ce
-	c.KeyCount++
+	_, present := c.dat[idx][key]
+	c.dat[idx][key] = ce
 	c.mu[idx].Unlock()
+	if !present {
+		atomic.AddInt64(&c.KeyCount, 1)
+	}
+
+	// only add keys that expire to gc bookkeeping
+	if ttl > 0 {
+		go updateGCBookkeeping(c, key, e)
+	}
 
 	return nil
 }
@@ -90,16 +113,16 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 	idx := keyToShard(key)
 
 	c.mu[idx].RLock()
-	el, exists := c.Dat[idx][key]
+	el, exists := c.dat[idx][key]
 	c.mu[idx].RUnlock()
-	if exists && time.Now().UTC().Before(el.expiresAt) {
+	if exists && time.Now().UTC().UnixNano() < el.expiresAt {
 		return el.dat, nil
 	} else if exists {
 		// evict key since it exists and it's expired
 		c.mu[idx].Lock()
-		delete(c.Dat[idx], key)
-		c.KeyCount--
+		delete(c.dat[idx], key)
 		c.mu[idx].Unlock()
+		atomic.AddInt64(&c.KeyCount, -1)
 	}
 	return []byte{}, errors.New("Key not found")
 }
@@ -107,6 +130,76 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
-		"KeyCount": c.KeyCount,
+		"KeyCount": atomic.LoadInt64(&c.KeyCount),
 	}, nil
+}
+
+func gcLoop(c *Conn, gcInterval time.Duration) {
+	for range time.Tick(gcInterval) {
+		if !c.runGC {
+			break
+		}
+		c.gcItemsMu.RLock()
+		i := c.gcQueue.Peek()
+		item, ok := i.(*priorityqueue.Item)
+		c.gcItemsMu.RUnlock()
+		// pop items while items are timed out
+		currentTime := time.Now().UTC().UnixNano()
+		for i != nil && ok && item.Priority <= currentTime {
+			if !c.runGC {
+				break
+			}
+			c.gcQueueMu.Lock()
+			popped := c.gcQueue.Pop()
+			c.gcQueueMu.Unlock()
+			poppedItem, poppedOk := popped.(*priorityqueue.Item)
+			if poppedOk {
+				// delete gc bookkeeping data
+				c.gcItemsMu.Lock()
+				delete(c.gcItems, poppedItem.Value)
+				c.gcItemsMu.Unlock()
+
+				// delete timed out data
+				idx := keyToShard(poppedItem.Value)
+				c.mu[idx].Lock()
+				delete(c.dat[idx], poppedItem.Value)
+				c.mu[idx].Unlock()
+				// decrement key count
+				atomic.AddInt64(&c.KeyCount, -1)
+			}
+
+			// peek at next item
+			c.gcItemsMu.RLock()
+			i = c.gcQueue.Peek()
+			item, ok = i.(*priorityqueue.Item)
+			c.gcItemsMu.RUnlock()
+		}
+	}
+}
+
+func updateGCBookkeeping(c *Conn, key string, expiresAt int64) {
+	c.gcItemsMu.RLock()
+	item, alreadyInQueue := c.gcItems[key]
+	c.gcItemsMu.RUnlock()
+
+	if alreadyInQueue {
+		// update existing item
+		c.gcQueueMu.Lock()
+		c.gcQueue.Update(item, key, expiresAt)
+		c.gcQueueMu.Unlock()
+	} else {
+		// new key/item
+		item := &priorityqueue.Item{
+			Value:    key,
+			Priority: expiresAt,
+		}
+		// add item to queue
+		c.gcQueueMu.Lock()
+		c.gcQueue.Push(item)
+		c.gcQueueMu.Unlock()
+		// track pointer to item for future updates
+		c.gcItemsMu.Lock()
+		c.gcItems[key] = item
+		c.gcItemsMu.Unlock()
+	}
 }

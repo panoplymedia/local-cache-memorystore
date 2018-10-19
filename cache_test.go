@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewCache(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 
 	assert.Equal(t, time.Second, c.TTL)
 }
 
 func TestWrite(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -43,7 +43,7 @@ func TestWrite(t *testing.T) {
 }
 
 func TestWriteTTL(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -68,7 +68,7 @@ func TestWriteTTL(t *testing.T) {
 }
 
 func TestRead(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -90,7 +90,7 @@ func TestRead(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -104,7 +104,33 @@ func TestStats(t *testing.T) {
 
 	s, err := conn.Stats()
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]interface{}{"KeyCount": uint64(1)}, s)
+	assert.Equal(t, map[string]interface{}{"KeyCount": int64(1)}, s)
+}
+
+func TestGarbageCollection(t *testing.T) {
+	c, err := NewCache(500*time.Millisecond, 100*time.Millisecond)
+	assert.Nil(t, err)
+	conn, err := c.Open("")
+	assert.Nil(t, err)
+	defer conn.Close()
+
+	v := []byte{1, 2}
+	conn.Write([]byte("my-key"), v)
+	conn.Write([]byte("my-key2"), v)
+	conn.Write([]byte("my-key2"), v) // should not increment KeyCount
+	// the following should not be garbage collected
+	conn.WriteTTL([]byte("my-key4"), v, 30*time.Second)
+	conn.WriteTTL([]byte("my-key3"), v, 0)
+
+	s, err := conn.Stats()
+	assert.Nil(t, err)
+	assert.Equal(t, map[string]interface{}{"KeyCount": int64(4)}, s)
+
+	// wait for GC
+	time.Sleep(600 * time.Millisecond)
+	s, err = conn.Stats()
+	assert.Nil(t, err)
+	assert.Equal(t, map[string]interface{}{"KeyCount": int64(2)}, s)
 }
 
 func writeData(c *Conn, numKeys int) {
@@ -124,7 +150,7 @@ func writeData(c *Conn, numKeys int) {
 }
 
 func BenchmarkWriteWorkers(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -151,7 +177,7 @@ func readData(c *Conn, numKeys int) {
 }
 
 func BenchmarkGetWorkers(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -163,7 +189,7 @@ func BenchmarkGetWorkers(b *testing.B) {
 }
 
 func BenchmarkWrite(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -174,9 +200,10 @@ func BenchmarkWrite(b *testing.B) {
 }
 
 func BenchmarkRead(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
+	writeData(conn, 100000)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

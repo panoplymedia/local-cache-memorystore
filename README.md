@@ -6,7 +6,8 @@ A [local cache](https://github.com/panoplymedia/local-cache) based on a custom m
 
 ```go
 defaultTimeout := time.Minute
-cache, err := NewCache(defaultTimeout)
+gcInterval := time.Minute
+cache, err := NewCache(defaultTimeout, gcInterval)
 if err != nil {
   fmt.Println(err)
 }
