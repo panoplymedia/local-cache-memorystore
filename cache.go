@@ -128,12 +128,22 @@ func (c *Conn) sweep() {
 }
 
 func (c *Conn) sweepBucket(idx int) {
-	c.mu[idx].Lock()
 	t := time.Now().UTC()
-	for key, value := range c.Dat[idx] {
-		if t.After(value.expiresAt) {
-			delete(c.Dat[idx], key)
+
+	c.mu[idx].RLock()
+	// pre-allocate the memory
+	// we will store at most the total number of keys
+	keys := make([]string, 0, len(c.Dat[idx]))
+	for k, v := range c.Dat[idx] {
+		if t.After(v.expiresAt) {
+			keys = append(keys, k)
 		}
 	}
-	c.mu[idx].Unlock()
+	c.mu[idx].RUnlock()
+
+	for _, key := range keys {
+		c.mu[idx].Lock()
+		delete(c.Dat[idx], key)
+		c.mu[idx].Unlock()
+	}
 }
