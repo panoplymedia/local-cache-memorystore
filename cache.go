@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/panoplymedia/local-cache-memorystore/priorityqueue"
@@ -92,12 +91,8 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 	}
 
 	c.mu[idx].Lock()
-	_, present := c.dat[idx][key]
 	c.dat[idx][key] = ce
 	c.mu[idx].Unlock()
-	if !present {
-		atomic.AddInt64(&c.KeyCount, 1)
-	}
 
 	// only add keys that expire to gc bookkeeping
 	if ttl > 0 {
@@ -122,15 +117,18 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 		c.mu[idx].Lock()
 		delete(c.dat[idx], key)
 		c.mu[idx].Unlock()
-		atomic.AddInt64(&c.KeyCount, -1)
 	}
 	return []byte{}, errors.New("Key not found")
 }
 
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
+	keyCount := 0
+	for i := 0; i < numBuckets; i++ {
+		keyCount += len(c.dat[i])
+	}
 	return Stats{
-		"KeyCount": atomic.LoadInt64(&c.KeyCount),
+		"KeyCount": keyCount,
 	}, nil
 }
 
@@ -164,8 +162,6 @@ func gcLoop(c *Conn, gcInterval time.Duration) {
 				c.mu[idx].Lock()
 				delete(c.dat[idx], poppedItem.Value)
 				c.mu[idx].Unlock()
-				// decrement key count
-				atomic.AddInt64(&c.KeyCount, -1)
 			}
 
 			// peek at next item

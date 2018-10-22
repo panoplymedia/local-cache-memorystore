@@ -104,7 +104,7 @@ func TestStats(t *testing.T) {
 
 	s, err := conn.Stats()
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]interface{}{"KeyCount": int64(1)}, s)
+	assert.Equal(t, map[string]interface{}{"KeyCount": 1}, s)
 }
 
 func TestGarbageCollection(t *testing.T) {
@@ -124,13 +124,13 @@ func TestGarbageCollection(t *testing.T) {
 
 	s, err := conn.Stats()
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]interface{}{"KeyCount": int64(4)}, s)
+	assert.Equal(t, map[string]interface{}{"KeyCount": 4}, s)
 
 	// wait for GC
 	time.Sleep(600 * time.Millisecond)
 	s, err = conn.Stats()
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]interface{}{"KeyCount": int64(2)}, s)
+	assert.Equal(t, map[string]interface{}{"KeyCount": 2}, s)
 }
 
 func writeData(c *Conn, numKeys int) {
@@ -176,7 +176,7 @@ func readData(c *Conn, numKeys int) {
 	wg.Wait()
 }
 
-func BenchmarkGetWorkers(b *testing.B) {
+func BenchmarkReadWorkers(b *testing.B) {
 	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
