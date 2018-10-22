@@ -3,6 +3,7 @@ package memorystorecache
 import (
 	"errors"
 	"math"
+	"runtime"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type Conn struct {
 	gcItems   map[string]*priorityqueue.Item
 	gcItemsMu sync.RWMutex
 	runGC     bool
+	bc        chan bookkeepingData
 }
 
 type cacheElement struct {
@@ -49,6 +51,7 @@ func NewCache(defaultTimeout time.Duration, gcInterval time.Duration) (*Cache, e
 func (c Cache) Open(name string) (*Conn, error) {
 	var m Conn
 	m.gcItems = make(map[string]*priorityqueue.Item)
+	m.bc = make(chan bookkeepingData, 10000)
 	for i := 0; i < numBuckets; i++ {
 		d := map[string]cacheElement{}
 		m.dat[i] = d
@@ -57,12 +60,17 @@ func (c Cache) Open(name string) (*Conn, error) {
 	m.TTL = c.TTL
 	m.runGC = true
 	go gcLoop(&m, c.gcInterval)
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		go bookkeepingWorker(&m, m.bc)
+	}
 	return &m, nil
 }
 
 // Close and stop gc loop
 func (c *Conn) Close() error {
 	c.runGC = false
+	close(c.bc)
 	return nil
 }
 
@@ -96,7 +104,7 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 
 	// only add keys that expire to gc bookkeeping
 	if ttl > 0 {
-		go updateGCBookkeeping(c, key, e)
+		c.bc <- bookkeepingData{key, e}
 	}
 
 	return nil
@@ -130,6 +138,20 @@ func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
 		"KeyCount": keyCount,
 	}, nil
+}
+
+type bookkeepingData struct {
+	key       string
+	expiresAt int64
+}
+
+func bookkeepingWorker(c *Conn, bc chan bookkeepingData) {
+	for bd := range bc {
+		if !c.runGC {
+			break
+		}
+		updateGCBookkeeping(c, bd.key, bd.expiresAt)
+	}
 }
 
 func gcLoop(c *Conn, gcInterval time.Duration) {
