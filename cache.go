@@ -16,11 +16,10 @@ type Cache struct {
 
 // Conn is a connection to a memory store db
 type Conn struct {
-	TTL      time.Duration
-	Dat      [numBuckets]map[string]cacheElement
-	mu       [numBuckets]sync.RWMutex
-	KeyCount uint64
-	ticker   *time.Ticker
+	TTL    time.Duration
+	Dat    [numBuckets]map[string]cacheElement
+	mu     [numBuckets]sync.RWMutex
+	ticker *time.Ticker
 }
 
 type cacheElement struct {
@@ -88,7 +87,6 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 
 	c.mu[idx].Lock()
 	c.Dat[idx][key] = ce
-	c.KeyCount++
 	c.mu[idx].Unlock()
 
 	return nil
@@ -108,7 +106,6 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 		// evict key since it exists and it's expired
 		c.mu[idx].Lock()
 		delete(c.Dat[idx], key)
-		c.KeyCount--
 		c.mu[idx].Unlock()
 	}
 	return []byte{}, errors.New("Key not found")
@@ -117,7 +114,7 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
-		"KeyCount": c.KeyCount,
+		"KeyCount": len(c.Dat),
 	}, nil
 }
 
