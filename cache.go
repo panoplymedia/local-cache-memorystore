@@ -11,7 +11,8 @@ const numBuckets = 36
 // Cache contains memory store options
 // a TTL of 0 does not expire keys
 type Cache struct {
-	TTL time.Duration
+	TTL        time.Duration
+	gcInterval time.Duration
 }
 
 // Conn is a connection to a memory store db
@@ -31,8 +32,8 @@ type cacheElement struct {
 type Stats map[string]interface{}
 
 // NewCache creates a new Cache
-func NewCache(defaultTimeout time.Duration) (*Cache, error) {
-	return &Cache{TTL: defaultTimeout}, nil
+func NewCache(defaultTimeout, gcInterval time.Duration) (*Cache, error) {
+	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
 
 // Open opens a new connection to the memory store
@@ -44,7 +45,7 @@ func (c Cache) Open(name string) (*Conn, error) {
 	}
 
 	// start the sweep ticker
-	m.ticker = time.NewTicker(time.Second * 3)
+	m.ticker = time.NewTicker(c.gcInterval)
 	go func(cn *Conn) {
 		for range m.ticker.C {
 			cn.sweep()
@@ -111,10 +112,18 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 	return []byte{}, errors.New("Key not found")
 }
 
+func (c *Conn) KeyCount() int {
+	var x int
+	for i, _ := range c.Dat {
+		x += len(c.Dat[i])
+	}
+	return x
+}
+
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
-		"KeyCount": len(c.Dat),
+		"KeyCount": c.KeyCount(),
 	}, nil
 }
 
