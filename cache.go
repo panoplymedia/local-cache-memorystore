@@ -112,10 +112,10 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 	return []byte{}, errors.New("Key not found")
 }
 
-func (c *Conn) KeyCount() int {
-	var x int
+func (c *Conn) KeyCount() uint64 {
+	var x uint64
 	for i, _ := range c.Dat {
-		x += len(c.Dat[i])
+		x += uint64(len(c.Dat[i]))
 	}
 	return x
 }

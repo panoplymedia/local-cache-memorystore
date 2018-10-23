@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewCache(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 
 	assert.Equal(t, time.Second, c.TTL)
 }
 
 func TestWrite(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -43,7 +43,7 @@ func TestWrite(t *testing.T) {
 }
 
 func TestWriteTTL(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -68,7 +68,7 @@ func TestWriteTTL(t *testing.T) {
 }
 
 func TestRead(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -90,7 +90,7 @@ func TestRead(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
-	c, err := NewCache(time.Second)
+	c, err := NewCache(time.Second, time.Second)
 	assert.Nil(t, err)
 	conn, err := c.Open("")
 	assert.Nil(t, err)
@@ -124,7 +124,7 @@ func writeData(c *Conn, numKeys int) {
 }
 
 func BenchmarkWriteWorkers(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -151,7 +151,7 @@ func readData(c *Conn, numKeys int) {
 }
 
 func BenchmarkGetWorkers(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -163,7 +163,7 @@ func BenchmarkGetWorkers(b *testing.B) {
 }
 
 func BenchmarkWrite(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
@@ -174,7 +174,7 @@ func BenchmarkWrite(b *testing.B) {
 }
 
 func BenchmarkRead(b *testing.B) {
-	c, _ := NewCache(time.Second)
+	c, _ := NewCache(time.Second, time.Second)
 	conn, _ := c.Open("")
 	defer conn.Close()
 
