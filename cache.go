@@ -59,7 +59,16 @@ func (c Cache) Open(name string) (*Conn, error) {
 // Close noop (there is no connection to close)
 func (c *Conn) Close() error {
 	c.ticker.Stop()
+	c.deallocate()
 	return nil
+}
+
+func (c *Conn) deallocate() {
+	for i, _ := range c.Dat {
+		for k, _ := range c.Dat[i] {
+			delete(c.Dat[i], k)
+		}
+	}
 }
 
 // Write writes data to the cache with the default cache TTL
