@@ -13,19 +13,23 @@ const numBuckets = 36
 type Cache struct {
 	TTL        time.Duration
 	gcInterval time.Duration
+	cpInterval time.Duration
+	bucket     string
 }
 
 // Conn is a connection to a memory store db
 type Conn struct {
-	TTL    time.Duration
-	Dat    [numBuckets]map[string]cacheElement
-	mu     [numBuckets]sync.RWMutex
-	ticker *time.Ticker
+	TTL      time.Duration
+	Dat      [numBuckets]map[string]cacheElement
+	mu       [numBuckets]sync.RWMutex
+	gcTicker *time.Ticker
+	cpTicker *time.Ticker
+	bucket   string
 }
 
 type cacheElement struct {
-	expiresAt time.Time
-	dat       []byte
+	ExpiresAt time.Time
+	Dat       []byte
 }
 
 // Stats displays stats about the memory store
@@ -36,6 +40,14 @@ func NewCache(defaultTimeout, gcInterval time.Duration) (*Cache, error) {
 	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
 
+func NewCacheWithCheckpoint(defaultTimeout, gcInterval time.Duration, cpInterval time.Duration, bucket string) (*Cache, error) {
+	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval, cpInterval: cpInterval, bucket: bucket}, nil
+}
+
+func (c Cache) checkpointEnabled() bool {
+	return c.cpInterval.Nanoseconds() > int64(0)
+}
+
 // Open opens a new connection to the memory store
 func (c Cache) Open(name string) (*Conn, error) {
 	var m Conn
@@ -44,30 +56,49 @@ func (c Cache) Open(name string) (*Conn, error) {
 		m.Dat[i] = d
 	}
 
+	m.TTL = c.TTL
+	m.bucket = c.bucket
+
 	// start the sweep ticker
-	m.ticker = time.NewTicker(c.gcInterval)
+	m.gcTicker = time.NewTicker(c.gcInterval)
 	go func(cn *Conn) {
-		for range m.ticker.C {
+		for range m.gcTicker.C {
 			cn.sweep()
 		}
 	}(&m)
 
-	m.TTL = c.TTL
+	// optionally restore from checkpoint and start the checkpoint ticker
+	if c.checkpointEnabled() {
+		// restore checkpoint
+		m.restoreCheckpoint()
+
+		// start checkpoint ticker
+		m.cpTicker = time.NewTicker(c.cpInterval)
+		go func(cn *Conn) {
+			for range m.cpTicker.C {
+				cn.recordCheckpoint()
+			}
+		}(&m)
+	}
+
 	return &m, nil
 }
 
 // Close noop (there is no connection to close)
 func (c *Conn) Close() error {
-	c.ticker.Stop()
+	c.gcTicker.Stop()
+	c.cpTicker.Stop()
 	c.deallocate()
 	return nil
 }
 
 func (c *Conn) deallocate() {
 	for i, _ := range c.Dat {
+		c.mu[i].Lock()
 		for k, _ := range c.Dat[i] {
 			delete(c.Dat[i], k)
 		}
+		c.mu[i].Unlock()
 	}
 }
 
@@ -91,8 +122,8 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 	}
 
 	ce := cacheElement{
-		expiresAt: e,
-		dat:       v,
+		ExpiresAt: e,
+		Dat:       v,
 	}
 
 	c.mu[idx].Lock()
@@ -110,8 +141,8 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 	c.mu[idx].RLock()
 	el, exists := c.Dat[idx][key]
 	c.mu[idx].RUnlock()
-	if exists && time.Now().UTC().Before(el.expiresAt) {
-		return el.dat, nil
+	if exists && time.Now().UTC().Before(el.ExpiresAt) {
+		return el.Dat, nil
 	} else if exists {
 		// evict key since it exists and it's expired
 		c.mu[idx].Lock()
@@ -150,7 +181,7 @@ func (c *Conn) sweepBucket(idx int) {
 	// we will store at most the total number of keys
 	keys := make([]string, 0, len(c.Dat[idx]))
 	for k, v := range c.Dat[idx] {
-		if t.After(v.expiresAt) {
+		if t.After(v.ExpiresAt) {
 			keys = append(keys, k)
 		}
 	}
