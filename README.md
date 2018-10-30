@@ -1,6 +1,6 @@
-# Local Cache MemoryStore
+# OmniCache MemoryStore
 
-A [local cache](https://github.com/panoplymedia/local-cache) based on a custom memory store implementation
+An in-memory persistence layer for [omni-cache](https://github.com/panoplymedia/omni-cache).
 
 ### Sample Usage
 
