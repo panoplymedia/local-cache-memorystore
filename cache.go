@@ -13,8 +13,6 @@ const numBuckets = 36
 type Cache struct {
 	TTL        time.Duration
 	gcInterval time.Duration
-	cpInterval time.Duration
-	bucket     string
 }
 
 // Conn is a connection to a memory store db
@@ -23,8 +21,6 @@ type Conn struct {
 	Dat      [numBuckets]map[string]cacheElement
 	mu       [numBuckets]sync.RWMutex
 	gcTicker *time.Ticker
-	cpTicker *time.Ticker
-	bucket   string
 }
 
 type cacheElement struct {
@@ -40,14 +36,6 @@ func NewCache(defaultTimeout, gcInterval time.Duration) (*Cache, error) {
 	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
 
-func NewCacheWithCheckpoint(defaultTimeout, gcInterval time.Duration, cpInterval time.Duration, bucket string) (*Cache, error) {
-	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval, cpInterval: cpInterval, bucket: bucket}, nil
-}
-
-func (c Cache) checkpointEnabled() bool {
-	return c.cpInterval.Nanoseconds() > int64(0)
-}
-
 // Open opens a new connection to the memory store
 func (c Cache) Open(name string) (*Conn, error) {
 	var m Conn
@@ -57,7 +45,6 @@ func (c Cache) Open(name string) (*Conn, error) {
 	}
 
 	m.TTL = c.TTL
-	m.bucket = c.bucket
 
 	// start the sweep ticker
 	m.gcTicker = time.NewTicker(c.gcInterval)
@@ -67,27 +54,12 @@ func (c Cache) Open(name string) (*Conn, error) {
 		}
 	}(&m)
 
-	// optionally restore from checkpoint and start the checkpoint ticker
-	if c.checkpointEnabled() {
-		// restore checkpoint
-		m.restoreCheckpoint()
-
-		// start checkpoint ticker
-		m.cpTicker = time.NewTicker(c.cpInterval)
-		go func(cn *Conn) {
-			for range m.cpTicker.C {
-				cn.recordCheckpoint()
-			}
-		}(&m)
-	}
-
 	return &m, nil
 }
 
 // Close noop (there is no connection to close)
 func (c *Conn) Close() error {
 	c.gcTicker.Stop()
-	c.cpTicker.Stop()
 	c.deallocate()
 	return nil
 }
