@@ -37,7 +37,7 @@ func (c *Conn) RestoreShard(i int, dat []byte) error {
 	return nil
 }
 
-// convience method to return a map of all shards, gob-encoded to a byte stream
+// convenience method to return a map of all shards, gob-encoded to a byte stream
 func (c *Conn) BackupShards() *sync.Map {
 	wg := &sync.WaitGroup{}
 	wg.Add(len(c.Dat))
@@ -62,7 +62,7 @@ func (c *Conn) backupToMap(i int, sm *sync.Map, wg *sync.WaitGroup) {
 	sm.Store(shardKey(i), dat)
 }
 
-// convience method to restore all shards
+// convenience method to restore all shards
 func (c *Conn) RestoreShards() *sync.Map {
 	wg := &sync.WaitGroup{}
 	wg.Add(len(c.Dat))
