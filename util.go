@@ -11,7 +11,9 @@ import (
 func (c *Conn) BackupShard(i int) ([]byte, error) {
 	b := bytes.Buffer{}
 	e := gob.NewEncoder(&b)
+	c.mu[i].RLock()
 	err := e.Encode(c.Dat[i])
+	c.mu[i].RUnlock()
 	if err != nil {
 		return []byte{}, err
 	}
