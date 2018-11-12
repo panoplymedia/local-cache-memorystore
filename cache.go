@@ -11,15 +11,16 @@ const numBuckets = 36
 // Cache contains memory store options
 // a TTL of 0 does not expire keys
 type Cache struct {
-	TTL time.Duration
+	TTL        time.Duration
+	gcInterval time.Duration
 }
 
 // Conn is a connection to a memory store db
 type Conn struct {
-	TTL      time.Duration
-	Dat      [numBuckets]map[string]cacheElement
-	mu       [numBuckets]sync.RWMutex
-	KeyCount uint64
+	TTL    time.Duration
+	Dat    [numBuckets]map[string]cacheElement
+	mu     [numBuckets]sync.RWMutex
+	ticker *time.Ticker
 }
 
 type cacheElement struct {
@@ -31,8 +32,10 @@ type cacheElement struct {
 type Stats map[string]interface{}
 
 // NewCache creates a new Cache
-func NewCache(defaultTimeout time.Duration) (*Cache, error) {
-	return &Cache{TTL: defaultTimeout}, nil
+// gcInterval is the interval at which to perform garbage collection
+// if gcInterval is set to 0, there will be no garbage collection
+func NewCache(defaultTimeout, gcInterval time.Duration) (*Cache, error) {
+	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
 
 // Open opens a new connection to the memory store
@@ -43,13 +46,34 @@ func (c Cache) Open(name string) (*Conn, error) {
 		m.Dat[i] = d
 	}
 
+	// only garbage collect if gcInterval > 0
+	if c.gcInterval > 0 {
+		// start the sweep ticker
+		m.ticker = time.NewTicker(c.gcInterval)
+		go func(cn *Conn) {
+			for range m.ticker.C {
+				cn.sweep()
+			}
+		}(&m)
+	}
+
 	m.TTL = c.TTL
 	return &m, nil
 }
 
 // Close noop (there is no connection to close)
 func (c *Conn) Close() error {
+	c.ticker.Stop()
+	c.deallocate()
 	return nil
+}
+
+func (c *Conn) deallocate() {
+	for i := range c.Dat {
+		for k := range c.Dat[i] {
+			delete(c.Dat[i], k)
+		}
+	}
 }
 
 // Write writes data to the cache with the default cache TTL
@@ -78,7 +102,6 @@ func (c *Conn) WriteTTL(k, v []byte, ttl time.Duration) error {
 
 	c.mu[idx].Lock()
 	c.Dat[idx][key] = ce
-	c.KeyCount++
 	c.mu[idx].Unlock()
 
 	return nil
@@ -98,15 +121,49 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 		// evict key since it exists and it's expired
 		c.mu[idx].Lock()
 		delete(c.Dat[idx], key)
-		c.KeyCount--
 		c.mu[idx].Unlock()
 	}
 	return []byte{}, errors.New("Key not found")
 }
 
+func (c *Conn) keyCount() uint64 {
+	var x uint64
+	for i := range c.Dat {
+		x += uint64(len(c.Dat[i]))
+	}
+	return x
+}
+
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
-		"KeyCount": c.KeyCount,
+		"KeyCount": c.keyCount(),
 	}, nil
+}
+
+func (c *Conn) sweep() {
+	for i := 0; i < numBuckets; i++ {
+		go c.sweepBucket(i)
+	}
+}
+
+func (c *Conn) sweepBucket(idx int) {
+	t := time.Now().UTC()
+
+	c.mu[idx].RLock()
+	// pre-allocate the memory
+	// we will store at most the total number of keys
+	keys := make([]string, 0, len(c.Dat[idx]))
+	for k, v := range c.Dat[idx] {
+		if t.After(v.expiresAt) {
+			keys = append(keys, k)
+		}
+	}
+	c.mu[idx].RUnlock()
+
+	for _, key := range keys {
+		c.mu[idx].Lock()
+		delete(c.Dat[idx], key)
+		c.mu[idx].Unlock()
+	}
 }
