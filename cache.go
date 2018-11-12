@@ -32,6 +32,8 @@ type cacheElement struct {
 type Stats map[string]interface{}
 
 // NewCache creates a new Cache
+// gcInterval is the interval at which to perform garbage collection
+// if gcInterval is set to 0, there will be no garbage collection
 func NewCache(defaultTimeout, gcInterval time.Duration) (*Cache, error) {
 	return &Cache{TTL: defaultTimeout, gcInterval: gcInterval}, nil
 }
@@ -44,13 +46,16 @@ func (c Cache) Open(name string) (*Conn, error) {
 		m.Dat[i] = d
 	}
 
-	// start the sweep ticker
-	m.ticker = time.NewTicker(c.gcInterval)
-	go func(cn *Conn) {
-		for range m.ticker.C {
-			cn.sweep()
-		}
-	}(&m)
+	// only garbage collect if gcInterval > 0
+	if c.gcInterval > 0 {
+		// start the sweep ticker
+		m.ticker = time.NewTicker(c.gcInterval)
+		go func(cn *Conn) {
+			for range m.ticker.C {
+				cn.sweep()
+			}
+		}(&m)
+	}
 
 	m.TTL = c.TTL
 	return &m, nil
