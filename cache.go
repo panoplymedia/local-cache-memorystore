@@ -64,8 +64,8 @@ func (c *Conn) Close() error {
 }
 
 func (c *Conn) deallocate() {
-	for i, _ := range c.Dat {
-		for k, _ := range c.Dat[i] {
+	for i := range c.Dat {
+		for k := range c.Dat[i] {
 			delete(c.Dat[i], k)
 		}
 	}
@@ -121,9 +121,9 @@ func (c *Conn) Read(k []byte) ([]byte, error) {
 	return []byte{}, errors.New("Key not found")
 }
 
-func (c *Conn) KeyCount() uint64 {
+func (c *Conn) keyCount() uint64 {
 	var x uint64
-	for i, _ := range c.Dat {
+	for i := range c.Dat {
 		x += uint64(len(c.Dat[i]))
 	}
 	return x
@@ -132,7 +132,7 @@ func (c *Conn) KeyCount() uint64 {
 // Stats provides stats about the Badger database
 func (c *Conn) Stats() (map[string]interface{}, error) {
 	return Stats{
-		"KeyCount": c.KeyCount(),
+		"KeyCount": c.keyCount(),
 	}, nil
 }
 
