@@ -6,7 +6,8 @@ An in-memory persistence layer for [omni-cache](https://github.com/panoplymedia/
 
 ```go
 defaultTimeout := time.Minute
-cache, err := NewCache(defaultTimeout)
+gcInterval := time.Minute
+cache, err := NewCache(defaultTimeout, gcInterval)
 if err != nil {
   fmt.Println(err)
 }
